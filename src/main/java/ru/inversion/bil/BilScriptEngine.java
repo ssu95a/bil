@@ -12,18 +12,19 @@ public class BilScriptEngine extends AbstractScriptEngine {
     private final BilScriptEngineFactory factory;
 
     /** */
-    private final Map<String, FunctionDef > functions = new HashMap<>();
+    private final FormMaker formMaker;
 
     /** */
-    private final FormMaker formMaker;
+    private final BilVisitorImpl bilVisitor;
+
+    /** */
+    //private final ScriptContext scriptContext;
 
     public BilScriptEngine( BilScriptEngineFactory factory )
     {
-        this.factory = factory;
-        this.context   = new SimpleScriptContext();
-        this.formMaker = new FormMaker(this.context);
-
-        initBuiltInFunctions();
+        this.factory    = factory;
+        this.formMaker  = new FormMaker(this.context);
+        this.bilVisitor = new BilVisitorImpl(this.context);
 
         initializeContext();
     }
@@ -48,33 +49,32 @@ public class BilScriptEngine extends AbstractScriptEngine {
             context.setErrorWriter(new java.io.PrintWriter(System.err));
 
         // FormMaker в глобальный контекст
-        context.getBindings( ScriptContext.GLOBAL_SCOPE ).put( "_FM", formMaker );
-        context.getBindings( ScriptContext.ENGINE_SCOPE ).put( "_FM", formMaker );
+//        context.getBindings( ScriptContext.GLOBAL_SCOPE ).put( "_FM", formMaker );
+//        context.getBindings( ScriptContext.ENGINE_SCOPE ).put( "_FM", formMaker );
+          context.setAttribute("_FM", formMaker, ScriptContext.GLOBAL_SCOPE );
     }
 
-    /** */
+    /*
     private void initBuiltInFunctions()
     {
         functions.put("typeof", (ctx, args) -> {
 
             if( args.length != 1)
-                throw new RuntimeException("typeof() expects exactly 1 argument");
+                throw new BilArgumentException("typeof()","typeof() expects exactly 1 argument", -1, -1);
 
             Value<?> value = args[0];
 
             return Value.ofString( value.type().name().toLowerCase() );
         });
 
-        functions.put("rangeof", (ctx, args) -> {
-            return Value.ofInt( args.length == 0 ? 1 : args.length );
-        });
+        functions.put("rangeof", (ctx, args) -> Value.ofInt( args.length == 0 ? 1 : args.length ));
 
         functions.put("round", new FunctionDef() {
             @Override
             public Value<?> execute( ScriptContext ctx, Value[] args ) {
 
                 if( args.length < 1 || args.length > 2 )
-                    throw new IllegalArgumentException( "round() expects 1 or 2 arguments" );
+                    throw new BilArgumentException("typeof()","round() expects 1 or 2 arguments", -1, -1);
 
                 Value<?> value = args[0];
                 int scale = 0; // null означает "по умолчанию"
@@ -133,7 +133,7 @@ public class BilScriptEngine extends AbstractScriptEngine {
                         formatArgs[i - 1] = args[i].toJavaObject();
                     }
 
-                    final String result = String.format(format, formatArgs);
+                    final String result = String.format( format, formatArgs );
 
                     ctx.getWriter().write(result);
 
@@ -143,17 +143,27 @@ public class BilScriptEngine extends AbstractScriptEngine {
                     for( Value<?> arg : args)
                     {
                         Object output = arg.toJavaObject();
-                        ctx.getWriter().write(output != null ? output.toString() : "null");
+                        ctx.getWriter().write( output != null ? output.toString() : "null" );
                     }
                 }
 
                 ctx.getWriter().flush();
 
-            } catch (Exception e) {
-                throw new RuntimeException("Print error: " + e.getMessage());
+            } catch( Exception e ) {
+                throw new RuntimeException( Tags.PRODUCT_LABEL + "call Print error: " + e.getMessage() );
             }
             return Value.VOID;
         });
+    }
+    */
+
+    /** */
+    private void check4Fm( ScriptContext context )
+    {
+        if (context.getAttribute("_FM", ScriptContext.GLOBAL_SCOPE) == null) {
+            FormMaker fm = new FormMaker(context);
+            context.setAttribute("_FM", fm, ScriptContext.GLOBAL_SCOPE);
+        }
     }
 
     /** */
@@ -162,15 +172,17 @@ public class BilScriptEngine extends AbstractScriptEngine {
 
         try {
             // Используем переданный контекст или дефолтный
-            ScriptContext evalContext = context != null ? context : this.context;
+            final ScriptContext evalContext = context != null ? context : this.context;
+
+            check4Fm(evalContext);
 
             org.antlr.v4.runtime.CharStream input = org.antlr.v4.runtime.CharStreams.fromString(script);
             ru.inversion.bil.antlr.BilLexer lexer = new ru.inversion.bil.antlr.BilLexer(input);
             org.antlr.v4.runtime.CommonTokenStream tokens = new org.antlr.v4.runtime.CommonTokenStream(lexer);
             ru.inversion.bil.antlr.BilParser parser = new ru.inversion.bil.antlr.BilParser(tokens);
 
-            BilVisitorImpl visitor = new BilVisitorImpl(evalContext, functions);
-            Value result = visitor.visitProgram(parser.program());
+            BilVisitorImpl visitor = (context != null) ? new BilVisitorImpl(evalContext) : this.bilVisitor;
+            Value<?> result = visitor.visitProgram(parser.program());
             return result != null ? result.toJavaObject() : null;
 
         }catch( Exception e ) {
@@ -208,24 +220,18 @@ public class BilScriptEngine extends AbstractScriptEngine {
         return factory;
     }
 
-    /** */
+    /*
     public interface FunctionDef {
-        Value execute( ScriptContext ctx, Value[] args);
+        Value<?> execute( ScriptContext ctx, Value<?>[] args) throws BilException;
     }
-
-    /** */
     public void registerFunction( String name, FunctionDef function ) {
         functions.put(name, function);
     }
-
-    /** */
     public FunctionDef getFunction( String name) {
         return functions.get(name);
     }
-
-    /** */
     public FunctionDef removeFunction( String name ) {
         return functions.remove(name);
     }
-
+    */
 }

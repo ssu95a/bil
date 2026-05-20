@@ -5,7 +5,7 @@ import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 import java.io.StringWriter;
 
-public class TypeofTest {
+public class TestTypeof {
     public static void main(String[] args) {
         ScriptEngineManager manager = new ScriptEngineManager();
         ScriptEngine engine = manager.getEngineByName("bil");
@@ -16,8 +16,8 @@ public class TypeofTest {
                 engine.getContext().setWriter(output);
 
                 String testScript = "// Тестирование функции typeof()\n" +
-                        "println(\"Testing typeof() function:\");\n" +
-                        "println(\"\");\n" +
+                        "print(\"Testing typeof() function:\");\n" +
+                        "print(1+\"||\");\n" +
                         "\n" +
                         "// Типы литералов\n" +
                         "println(\"typeof(42): \" + typeof(42));\n" +
