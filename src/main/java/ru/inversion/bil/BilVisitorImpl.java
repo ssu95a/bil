@@ -62,9 +62,42 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
         Value<?> value = Value.Null;
         Value.Type declaredType = Value.types.get( ctx.type().getText() );
 
+<<<<<<< HEAD
         if( ctx.expression() != null ) {
             value = visit(ctx.expression());
             value = ValueHelper.convert( value, declaredType );
+=======
+        // Обрабатываем все объявления
+        for( int i = 0; i < ctx.ID().size(); i++ )
+        {
+            String varName = ctx.ID(i).getText();
+
+            // Если переменная уже есть в контексте
+            // не инициализируем!
+            // т.к. может передаваться между вызовами
+            if( getEngineBindings().containsKey(varName) )
+                continue;
+
+            Value<?> value = Value.Null;
+
+            // Если есть выражение для этой переменной
+            if( ctx.expression().size() > i )
+            {
+                value = visit(ctx.expression(i));
+
+                // Для литерала мапы не нужно преобразование типа
+                if( value.type() != declaredType && !(ctx.expression(i) instanceof BilParser.MapLiteralExprContext ))
+                {
+                    value = ValueHelper.convert( value, declaredType, ctx);
+                }
+
+                //value = ValueHelper.convert( value, declaredType, ctx);
+            }
+            else
+                value = ValueHelper.createDefaultValue( declaredType );
+
+            getEngineBindings().put( varName, value );
+>>>>>>> be3fc7b (SUPXXI-22856 при повторной иницицализации переменной, значение не присваивается, если переменная уже в контексте)
         }
 
         variableTypes.put( varName, declaredType );
