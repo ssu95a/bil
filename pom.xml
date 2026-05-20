@@ -4,17 +4,15 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 
          http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
-
-    <groupId>ru.inversion</groupId>
-    <artifactId>bil</artifactId>
-    <version>1.0.0</version>
-    <packaging>jar</packaging>
-
     <parent>
         <groupId>ru.inversion</groupId>
         <artifactId>inversion-parent</artifactId>
         <version>1</version>
     </parent>
+
+    <artifactId>bil</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
 
     <name>Bil</name>
     <description>Interpreter for BIL language</description>
@@ -33,9 +31,10 @@
             <groupId>org.antlr</groupId>
             <artifactId>antlr4-runtime</artifactId>
             <version>${antlr.version}</version>
+            <scope>compile</scope>
         </dependency>
 
-        <!-- ANTLR Tool (��� ��������� �������) -->
+        <!-- ANTLR Tool (для генерации парсера) -->
         <dependency>
             <groupId>org.antlr</groupId>
             <artifactId>antlr4</artifactId>
@@ -51,27 +50,16 @@
         </dependency>
         <dependency>
             <groupId>ru.inversion</groupId>
-            <artifactId>JInvCommon</artifactId>
-            <version>1.0.0</version>
+            <artifactId>JInvFore</artifactId>
+            <version>1.0.1</version>
+            <scope>provided</scope>
         </dependency>
-
     </dependencies>
 
     <build>
         <finalName>Bil</finalName>
         <plugins>
-            <plugin>
-                <groupId>ru.inversion</groupId>
-                <artifactId>search-incode-plugin</artifactId>
-                <version>0.3.5</version>
-                <executions>
-                    <execution>
-                        <phase>none</phase>
-                    </execution>
-                </executions>
-            </plugin>
-
-            <!-- ANTLR Plugin ��� ��������� ������� -->
+            <!-- ANTLR Plugin для генерации парсера -->
             <plugin>
                 <groupId>org.antlr</groupId>
                 <artifactId>antlr4-maven-plugin</artifactId>
@@ -95,8 +83,6 @@
                     <visitor>true</visitor>
                 </configuration>
             </plugin>
-
-            <!-- ���������� Java -->
 
             <!-- Добавляем сгенерированные источники -->
             <plugin>
@@ -137,13 +123,45 @@
                 <artifactId>maven-jar-plugin</artifactId>
                 <version>3.2.2</version>
                 <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>ru.inversion.bil.Runner</mainClass>
+                            <addClasspath>false</addClasspath>
+                        </manifest>
+                        <manifestEntries>
+                            <Class-Path>JInvFore.jar</Class-Path>
+                        </manifestEntries>
+                    </archive>
                     <excludes>
-                        <!-- Исключаем служебные файлы ANTLR из JAR -->
                         <exclude>**/*.tokens</exclude>
                         <exclude>**/*.interp</exclude>
                         <exclude>**/*.g4</exclude>
                     </excludes>
                 </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.0</version>
+                <executions>
+                    <execution>
+                        <id>unpack-dependencies</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>unpack-dependencies</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}</outputDirectory>
+                            <excludeTransitive>true</excludeTransitive>
+                            <!-- Распаковываем только antlr4-runtime -->
+                            <includeGroupIds>org.antlr</includeGroupIds>
+                            <includeArtifactIds>antlr4-runtime</includeArtifactIds>
+                            <!-- Исключаем ненужные файлы -->
+                            <excludes>META-INF/**</excludes>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
 
             <!-- Плагин для запуска скриптов -->
@@ -155,7 +173,6 @@
                     <mainClass>ru.inversion.bil.Runner</mainClass>
                 </configuration>
             </plugin>
-
         </plugins>
 
         <resources>
@@ -175,5 +192,4 @@
             </resource>
         </resources>
     </build>
-
 </project>

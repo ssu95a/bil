@@ -1,11 +1,15 @@
 package ru.inversion.bil;
 
+import org.antlr.v4.runtime.ParserRuleContext;
+import ru.inversion.utils.S;
 import ru.inversion.utils.converter.IConverter;
 import ru.inversion.utils.converter.TypeConverter;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.*;
 import java.util.function.BiFunction;
 
@@ -263,8 +267,9 @@ public class ValueHelper {
         return c;
     }
 
+
     /** */
-    public static Value<?> convert( Value<?> v, Value.Type typeTo)
+    public static Value<?> convert( Value<?> v, Value.Type typeTo, ParserRuleContext ctx )
     {
         if( v == null || v.type() == NULL || typeTo == NULL )
             return Value.Null;
@@ -275,14 +280,14 @@ public class ValueHelper {
         final IConverter<Value<?>,Value<?>> c = getConverter( v.type(), typeTo );
 
         if( c == null )
-            throw new IllegalStateException("Нет правила(конвертора) для преобразования типа " + v.type() + " в " + typeTo );
+            throw new BilTypeException( "convert", Tags.PRODUCT_LABEL + "Нет правила(конвертора) для преобразования типа " + v.type() + " в " + typeTo, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine() );
 
         return c.to(v);
     }
 
 
-    //
-    private static int compareValues(Value<?> left, Value<?> right) {
+    /** */
+    private static int compareValues(Value<?> left, Value<?> right, ParserRuleContext ctx) {
         
         // Реализация сравнения значений различных типов
         if( left.type() == Value.Type.INT && right.type() == Value.Type.INT )
@@ -297,11 +302,12 @@ public class ValueHelper {
         if (left.type() == Value.Type.STRING && right.type() == Value.Type.STRING) {
             return left.asString().compareTo(right.asString());
         }
-        throw new RuntimeException("Cannot compare " + left.type() + " and " + right.type());
-    }    
+
+        throw new BilTypeException( "ValueHelper.compareValues", Tags.PRODUCT_LABEL + "Cannot compare " + left.type() + " and " + right.type(), ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine() );
+    }
     
     /** */
-    private static boolean compareImpl(  Value<?> left, Value<?> right, String operator )
+    private static boolean compareImpl(  Value<?> left, Value<?> right, String operator, ParserRuleContext ctx )
     {
         ComparisonOperatorEnum op = ComparisonOperatorEnum.of(operator);
 
@@ -311,25 +317,69 @@ public class ValueHelper {
             case NOT_EQUAL:
                 return !left.equals(right);
             case LESS_THAN:
-                return compareValues(left, right) < 0;
+                return compareValues(left, right, ctx) < 0;
             case GREATER_THAN:
-                return compareValues(left, right) > 0;
+                return compareValues(left, right, ctx) > 0;
             case LESS_THAN_OR_EQUAL:
-                return compareValues(left, right) <= 0;
+                return compareValues(left, right, ctx) <= 0;
             case GREATER_THAN_OR_EQUAL:
-                return compareValues(left, right) >= 0;
+                return compareValues(left, right, ctx) >= 0;
             default:
-                throw new IllegalStateException("Unknown operator: " + op );
+                throw new BilTypeException( "ValueHelper.compareImpl", Tags.PRODUCT_LABEL + "Unknown operator: " + op, ctx.getStart().getLine(), ctx.getStart().getCharPositionInLine() );
         }
     }
 
     /** */
-    public static Value<Boolean> compare( Value<?> left, Value<?> right, String operator )
+    public static Value<Boolean> compare( Value<?> left, Value<?> right, String operator, ParserRuleContext ctx )
     {
         if( left.type() == Value.Type.NULL || right.type() == Value.Type.NULL )
             return Value.False;
 
-        return Value.ofBool( compareImpl(left,right, operator ) );
+        return Value.ofBool( compareImpl( left,right, operator, ctx ) );
+    }
+
+    /** */
+    public static Value<?> createDefaultValue( Value.Type type)
+    {
+        switch( type ) {
+            case INT:    return Value.ofInt(0);
+            case FLOAT:  return Value.ofFloat(0.0);
+            case STRING: return Value.ofString(S.EMPTY_STRING);
+            case BOOL:   return Value.False;
+            case MONEY:  return Value.ofMoney(BigDecimal.ZERO);
+            case DATE:   return Value.ofDate(java.time.LocalDate.now());
+            case TIME:   return Value.ofTime(java.time.LocalTime.now());
+            case ARRAY:  return Value.ofArray( new ArrayList<>());
+            case MAP:    return Value.ofMap  ( new HashMap<>()  );
+            case NULL:   return Value.Null;
+            default:     return Value.Null;
+        }
+    }
+
+    /** Определяет тип из значения Java объекта */
+    public static  Value.Type typeOfJavaObj (Object value) {
+        if (value == null)
+            return Value.Type.NULL;
+        if (value instanceof Integer)
+            return Value.Type.INT;
+        if (value instanceof Double)
+            return Value.Type.FLOAT;
+        if (value instanceof String)
+            return Value.Type.STRING;
+        if (value instanceof Boolean)
+            return Value.Type.BOOL;
+        if (value instanceof BigDecimal)
+            return Value.Type.MONEY;
+        if (value instanceof LocalDate)
+            return Value.Type.DATE;
+        if (value instanceof LocalTime)
+            return Value.Type.TIME;
+        if (value instanceof List)
+            return Value.Type.ARRAY;
+        if (value instanceof Map)
+            return Value.Type.MAP;
+
+        throw new RuntimeException("Unknown value type: " + value.getClass());
     }
 
 }

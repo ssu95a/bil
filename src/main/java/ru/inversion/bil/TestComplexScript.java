@@ -5,7 +5,7 @@ import javax.script.ScriptEngineManager;
 import javax.script.ScriptException;
 import java.io.StringWriter;
 
-public class ComplexTestScript {
+public class TestComplexScript {
     public static void main(String[] args) {
         ScriptEngineManager manager = new ScriptEngineManager();
         ScriptEngine engine = manager.getEngineByName("bil");
