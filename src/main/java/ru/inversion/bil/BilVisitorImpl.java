@@ -1,38 +1,54 @@
 package ru.inversion.bil;
 
+import org.antlr.v4.runtime.ParserRuleContext;
 import ru.inversion.bil.antlr.BilParser;
 import ru.inversion.bil.antlr.BilBaseVisitor;
+import ru.inversion.utils.TriFunction;
+import ru.inversion.utils.U;
 
 import javax.script.Bindings;
 import javax.script.ScriptContext;
 import javax.script.SimpleBindings;
+import javax.script.SimpleScriptContext;
 import java.time.LocalDate;
 import java.time.LocalTime;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
-    private final ScriptContext scriptContext;
-
-    private final Map<String,BilScriptEngine.FunctionDef > functions;
-    private final Map<String, Value.Type> variableTypes = new HashMap<>();
     /** */
-    public BilVisitorImpl( ScriptContext scriptContext, Map<String, BilScriptEngine.FunctionDef> functions) {
+    private ScriptContext scriptContext;
+
+    /** */
+    //private final Map<String,BilScriptEngine.FunctionDef > functions;
+    private Map<String, TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?> >> functions;
+
+    /** */
+    public BilVisitorImpl( ScriptContext scriptContext) {
 
         this.scriptContext = scriptContext;
-        this.functions     = functions;
 
-        // Инициализируем bindings если они null
-        if( scriptContext.getBindings( ScriptContext.ENGINE_SCOPE ) == null )
-            scriptContext.setBindings( new SimpleBindings(), ScriptContext.ENGINE_SCOPE );
+// Инициализируем bindings если они null
+//        if( scriptContext.getBindings( ScriptContext.ENGINE_SCOPE ) == null )
+//            scriptContext.setBindings( new SimpleBindings(), ScriptContext.ENGINE_SCOPE );
+    }
+
+    private Map<String, TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?> >> functions() {
+
+        Map<String, TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?> >> fs =
+                (Map<String, TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?> >>)
+                scriptContext.getAttribute("__functions__", ScriptContext.GLOBAL_SCOPE );
+        if( fs == null ) {
+            fs = BuiltInFunctionsHelper.initFunctions();
+            scriptContext.setAttribute("__functions__", fs, ScriptContext.GLOBAL_SCOPE );
+        }
+        return fs;
     }
 
     /** */
     private Bindings getEngineBindings() {
+
         Bindings bindings = scriptContext.getBindings(ScriptContext.ENGINE_SCOPE);
         if (bindings == null) {
             bindings = new SimpleBindings();
@@ -42,14 +58,31 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     }
 
     @Override
-    public Value<?> visitProgram(BilParser.ProgramContext ctx) {
+    public Value<?> visitParameter( BilParser.ParameterContext ctx) {
 
+        String paramName = ctx.ID().getText();
+
+        // Инициализируем параметр значением по умолчанию
+        String typeName = ctx.type().getText();
+        Value.Type paramType = Value.types.get(typeName);
+        Value<?> defaultValue = ValueHelper.createDefaultValue(paramType);
+
+        getEngineBindings().put(paramName, defaultValue);
+
+        return Value.VOID;
+    }
+
+    /** */
+    @Override
+    public Value<?> visitProgram( BilParser.ProgramContext ctx )
+    {
         Value<?> result = Value.VOID;
+
         for( BilParser.StatementContext stmt : ctx.statement() )
-            result = visit(stmt);
+             result = visit(stmt);
 
         if( ctx.returnExpression() != null )
-            result = visit(ctx.returnExpression());
+            result = visit( ctx.returnExpression() );
 
         return result;
     }
@@ -58,15 +91,8 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     @Override
     public Value<Void> visitVariableDeclaration( BilParser.VariableDeclarationContext ctx )
     {
-        final String varName = ctx.ID().getText();
-        Value<?> value = Value.Null;
         Value.Type declaredType = Value.types.get( ctx.type().getText() );
 
-<<<<<<< HEAD
-        if( ctx.expression() != null ) {
-            value = visit(ctx.expression());
-            value = ValueHelper.convert( value, declaredType );
-=======
         // Обрабатываем все объявления
         for( int i = 0; i < ctx.ID().size(); i++ )
         {
@@ -97,33 +123,8 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
                 value = ValueHelper.createDefaultValue( declaredType );
 
             getEngineBindings().put( varName, value );
->>>>>>> be3fc7b (SUPXXI-22856 при повторной иницицализации переменной, значение не присваивается, если переменная уже в контексте)
         }
-
-        variableTypes.put( varName, declaredType );
-        getEngineBindings().put( varName, value.toJavaObject() );
-
         return Value.VOID;
-    }
-
-    /** */
-    @Override
-    public Value<?> visitAssignment( BilParser.AssignmentContext ctx ) {
-
-        final String varName = ctx.ID().getText();
-        Value<?> value = visit(ctx.expression());
-
-// Проверяем, была ли переменная объявлена
-        Value.Type varType = variableTypes.get( varName );
-        if( varType == null)
-            throw new RuntimeException("Variable not declared: " + varName);
-
-        // АВТОМАТИЧЕСКОЕ ПРИВЕДЕНИЕ ТИПОВ
-        value = ValueHelper.convert( value, varType );
-
-        getEngineBindings().put( varName, value.toJavaObject() );
-
-        return value;
     }
 
     @Override
@@ -133,55 +134,104 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     }
 
     @Override
-    public Value<?> visitMethodCall(BilParser.MethodCallContext ctx) {
-
+    public Value<?> visitMethodCall( BilParser.MethodCallContext ctx)
+    {
         final String objectName = ctx.ID(0).getText();
         final String methodName = ctx.ID(1).getText();
-        final  List<Value<?>> args = new ArrayList<>();
+        final List<Value<?>> args = new ArrayList<>();
 
-        if (ctx.argumentList() != null)
+        if( ctx.argumentList() != null )
         {
             for( BilParser.ExpressionContext expr : ctx.argumentList().expression()) {
                  args.add(visit(expr));
             }
         }
 
-        return invokeObjectMethod( objectName, methodName, args) ;
-    }
-
-    /** */
-    private Value<?> invokeObjectMethod( String objectName, String methodName, List<Value<?>> args )
-    {
-        // Получаем объект из контекста
         Object target = getEngineBindings().get(objectName);
-        if (target == null)
+        if( target == null )
             target = scriptContext.getBindings(ScriptContext.GLOBAL_SCOPE).get(objectName);
 
+        if( target == null ) {
+
+            if( getEngineBindings().containsKey(objectName) )
+                BilException.throwArgumentException(  methodName, objectName + " value is null", ctx);
+
+            BilException.throwRuntimeException("Object not found: " + objectName, ctx);
+        }
+        return invokeObjectMethod(objectName, methodName, args, ctx );
+    }
+
+
+    /** */
+    private Value<?> invokeObjectMethod( String objectName, String methodName, List<Value<?>> args, ParserRuleContext ctx  )  {
+
+        // Получаем объект из контекста
+        Object target = getEngineBindings().get(objectName);
+
         if( target == null )
-            throw new RuntimeException("Object not found: " + objectName);
+            target = scriptContext.getBindings( ScriptContext.GLOBAL_SCOPE ).get(objectName);
 
-        try {
-            // Преобразуем аргументы в Java объекты
-            Object[] javaArgs = args.stream().map(Value::toJavaObject).toArray();
+        if( target == null )
+            BilException.throwRuntimeException( "Object not found: " + objectName, ctx);
 
-            // Ищем подходящий метод
-            java.lang.reflect.Method method = findMethod( target.getClass(), methodName, javaArgs );
-
-            // Вызываем метод
-            Object result = method.invoke(target, javaArgs);
-
-            // Если метод void, возвращаем VOID
-            if (method.getReturnType() == void.class) {
+        if( target instanceof Value )
+        {
+            Value<?> v = (Value<?>)target;
+            switch ( v.type() ) {
+                case NULL:
+                    return v;
+                case STRING:
+                    return StringObjHelper.invokeStringMethod( (Value<String>) v, methodName, args, ctx);
+                case ARRAY:
+                    return ArrayHelper.invokeArrayMethod((Value<List<Value<?>>>)v, methodName, args, ctx);
+                case MAP:
+                    return MapHelper.invokeMapMethod(( Value<Map<Value<?>, Value<?>>>) v, methodName, args, ctx);
+                default:
+                    BilException.throwFunctionException(methodName, "Bad call " + methodName + " for " + objectName, ctx);
+            }
+        }
+        else
+        {
+            if( target instanceof FormMaker ) {
+                FormMaker.invokeMethod((FormMaker) target, methodName, args, ctx);
                 return Value.VOID;
             }
 
-            return Value.fromObject(result);
+            if( target instanceof String )
+                return StringObjHelper.invokeStringMethod( Value.ofString(target.toString() ), methodName, args, ctx);
 
-        } catch (Exception e) {
-            throw new RuntimeException("Error calling method " + objectName + "." + methodName + ": " + e.getMessage(), e);
+            if( target instanceof List )
+                return ArrayHelper.invokeArrayMethod( Value.ofArray((List<Value<?>>) target), methodName, args, ctx);
+
+            if( target instanceof Map )
+                return MapHelper.invokeMapMethod( Value.ofMap((Map) target), methodName, args, ctx);
+
+            // Рефлексивный вызов для других объектов
+            try {
+                // Преобразуем аргументы в Java объекты
+                Object[] javaArgs = args.stream().map(Value::toJavaObject).toArray();
+
+                // Ищем подходящий метод
+                java.lang.reflect.Method method = findMethod(target.getClass(), methodName, javaArgs);
+
+                // Вызываем метод
+                Object result = method.invoke(target, javaArgs);
+
+                // Если метод void, возвращаем VOID
+                if( method.getReturnType() == void.class )
+                    return Value.VOID;
+
+                return Value.fromObject( result );
+
+            } catch( Exception e ) {
+                BilException.throwFunctionException( objectName + "." + methodName, "Error calling method " + objectName + "." + methodName + ": " + e.getMessage(), ctx, e );
+            }
         }
+        //stub
+        return Value.VOID;
     }
 
+    /** */
     private java.lang.reflect.Method findMethod(Class<?> clazz, String methodName, Object[] args) {
         for (java.lang.reflect.Method method : clazz.getMethods()) {
             if (method.getName().equals(methodName) && isCompatible(method, args)) {
@@ -191,6 +241,7 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
         throw new RuntimeException("Method not found: " + methodName + " with compatible parameters");
     }
 
+    /** */
     private boolean isCompatible(java.lang.reflect.Method method, Object[] args) {
         Class<?>[] paramTypes = method.getParameterTypes();
         if (paramTypes.length != args.length) {
@@ -225,77 +276,74 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     public Value<?> visitFunctionCall( BilParser.FunctionCallContext ctx )
     {
         final String funcName = ctx.ID().getText();
-        List<Value<?>> args = new ArrayList<>();
+        final List<Value<?>> args = new ArrayList<>();
 
         if( ctx.argumentList() != null )
-            args = ctx.argumentList().expression().stream().map(this::visit).collect(Collectors.toList());
-
-        if( "typeof".equals(funcName) )
         {
-            if( args.size() != 1 )
-                throw new RuntimeException("typeof() expects exactly 1 argument");
-
-            Value<?> argument = args.get(0);
-
-            return Value.ofString( argument.type().name().toLowerCase() );
+            for( BilParser.ExpressionContext expr : ctx.argumentList().expression()) {
+                 Value<?> argValue = visit(expr);
+                 args.add(argValue);
+            }
         }
 
-        if( "rangeof".equals(funcName) )
-        {
-            if( args.size() <= 1 )
-                return Value.ofInt(1);
+        TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?>> function = functions().get(funcName);
 
-            return Value.ofInt( args.size() );
-        }
+        if( function == null )
+            BilException.throwFunctionException( funcName, "Function not found: " + funcName, ctx );
 
-        final BilScriptEngine.FunctionDef function = functions.get(funcName);
-        if( function == null)
-            throw new RuntimeException("Function not found: " + funcName);
+        return function.apply( scriptContext, args, ctx );
+    }
 
-        return function.execute(scriptContext, args.toArray(new Value[0]));
+
+    /** */
+    @Override
+    public Value<?> visitMultiplicativeExpr( BilParser.MultiplicativeExprContext ctx )
+    {
+        final Value<?> left = visit(ctx.expression(0));
+        final Value<?> right= visit(ctx.expression(1));
+        char op = ctx.op.getText().charAt(0);
+        return Value.mathOperator( left, right, op );
     }
 
     /** */
     @Override
-    public Value<?> visitMultiplicativeExpr(BilParser.MultiplicativeExprContext ctx) {
-        final Value<?> left = visit(ctx.expression(0));
-        final Value<?> right= visit(ctx.expression(1));
+    public Value<?> visitAdditiveExpr( BilParser.AdditiveExprContext ctx )
+    {
+        final Value<?>  left = visit(ctx.expression(0));
+        final Value<?> right = visit(ctx.expression(1));
         char op = ctx.op.getText().charAt(0);
         return Value.mathOperator( left, right, op );
     }
 
     @Override
-    public Value<?> visitAdditiveExpr(BilParser.AdditiveExprContext ctx) {
-        final Value<?> left = visit(ctx.expression(0));
-        final Value<?> right= visit(ctx.expression(1));
-        char op = ctx.op.getText().charAt(0);
-        return Value.mathOperator( left, right, op );
-    }
-
-    @Override
-    public Value visitVariableExpr( BilParser.VariableExprContext ctx ) {
+    public Value<?> visitVariableExpr(BilParser.VariableExprContext ctx) {
 
         final String varName = ctx.ID().getText();
 
-        // Если это вызов typeof, обрабатываем особо
-        if( "typeof".equals(varName) ) {
-            // Это будет обработано в visitFunctionCall
-            return super.visitVariableExpr(ctx);
-        }
-        else if( "rangeof".equals(varName) ) {
-            // Это будет обработано в visitFunctionCall
+        // Специальные функции
+        if( U.in( varName, "typeof", "rangeof", "print", "concat") ) {
             return super.visitVariableExpr(ctx);
         }
 
+// 2. Если не нашли, ищем в GLOBAL_SCOPE (PoluchName, ACCA)
         Object value = getEngineBindings().get(varName);
 
-        if (value == null) {
-            // Для необъявленных переменных возвращаем NULL вместо исключения
-            return Value.Null;
+        if( value == null )
+        {
+            Bindings globalBindings = scriptContext.getBindings(ScriptContext.GLOBAL_SCOPE);
+            if( globalBindings != null )
+                value = globalBindings.get(varName);
         }
+
+        if( value == null )
+            return Value.Null;
+
+        if( value instanceof Value )
+            return (Value<?>) value;
 
         return Value.fromObject(value);
     }
+
 
     @Override
     public Value<? extends Number> visitNumberExpr(BilParser.NumberExprContext ctx) {
@@ -314,7 +362,6 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
         switch(value.type() ) {
             case INT:   return Value.ofInt  ( -value.asInt() );
-            case FLOAT: return Value.ofFloat( -value.asFloat() );
             case MONEY: return Value.ofMoney( value.asMoney().negate() );
             default:
                 throw new RuntimeException("Unary minus not supported for type: " + value.type());
@@ -327,11 +374,16 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
         return visit(ctx.expression());
     }
 
-
     @Override
-    public Value<String> visitStringExpr(BilParser.StringExprContext ctx) {
-        final String text = ctx.STRING().getText();
-        return Value.ofString( text.substring(1, text.length() - 1) );
+    public Value<String> visitStringExpr(BilParser.StringExprContext ctx)
+    {
+        final String text    = ctx.STRING().getText();
+        final String content = text.substring(1, text.length() - 1);
+
+        if( content.indexOf('\\') == -1 )
+            return Value.ofString(content);
+
+        return Value.ofString( StringObjHelper.unescapeString(content) );
     }
 
     @Override
@@ -367,7 +419,7 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
         final String op = ctx.op.getText();
 
-        return ValueHelper.compare( left, right, op );
+        return ValueHelper.compare( left, right, op, ctx );
     }
 
     @Override
@@ -378,7 +430,7 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
         final String op = ctx.op.getText();
 
-        return ValueHelper.compare( left, right, op );
+        return ValueHelper.compare( left, right, op, ctx );
     }
 
     @Override
@@ -402,4 +454,350 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     public Value<LocalTime> visitTimeExpr( BilParser.TimeExprContext ctx) {
         return Value.ofTime( ctx.TIME().getText() );
     }
-}
+
+    @Override
+    public Value<String> visitCharExpr(BilParser.CharExprContext ctx) {
+        final String text = ctx.CHAR().getText();
+        // Извлекаем символ из 'a' -> "a"
+        final String content = text.substring(1, text.length() - 1);
+
+        // Быстрая проверка
+        if( content.indexOf('\\') == -1 )
+            return Value.ofString(content);
+
+        return Value.ofString( StringObjHelper.unescapeString( content) );
+    }
+
+    // Increments & Decrements
+
+    private void updateVariable(BilParser.ExpressionContext expr, Value<Integer> newValue)
+    {
+        if( expr instanceof BilParser.VariableExprContext ) {
+            String varName = ((BilParser.VariableExprContext) expr).ID().getText();
+            getEngineBindings().put(varName, newValue.toJavaObject() );
+        }
+
+        // Для более сложных выражений нужна дополнительная логика
+    }
+
+    @Override
+    public Value<Integer> visitPostIncrementExpr(BilParser.PostIncrementExprContext ctx) {
+        Value<?> value = visit(ctx.expression());
+
+        // ТОЛЬКО ДЛЯ INT
+        if (value.type() != Value.Type.INT) {
+            throw new RuntimeException("++ can only be applied to integers");
+        }
+
+        int current = value.asInt();
+        int newValue = current + 1;
+        updateVariable(ctx.expression(), Value.ofInt(newValue));
+        return Value.ofInt(current); // Возвращаем старое значение (пост-инкремент)
+    }
+
+    @Override
+    public Value<Integer> visitPostDecrementExpr(BilParser.PostDecrementExprContext ctx) {
+        Value<?> value = visit(ctx.expression());
+
+        // ТОЛЬКО ДЛЯ INT
+        if (value.type() != Value.Type.INT) {
+            throw new RuntimeException("-- can only be applied to integers");
+        }
+
+        int current = value.asInt();
+        int newValue = current - 1;
+        updateVariable(ctx.expression(), Value.ofInt(newValue));
+        return Value.ofInt(current); // Возвращаем старое значение (пост-декремент)
+    }
+
+    @Override
+    public Value<Integer> visitPreDecrementExpr(BilParser.PreDecrementExprContext ctx) {
+        Value<?> value = visit(ctx.expression());
+
+        // ТОЛЬКО ДЛЯ INT
+        if (value.type() != Value.Type.INT) {
+            throw new RuntimeException("-- can only be applied to integers");
+        }
+
+        int newValue = value.asInt() - 1;
+        updateVariable(ctx.expression(), Value.ofInt(newValue));
+        return Value.ofInt(newValue); // Возвращаем новое значение (пре-декремент)
+    }
+
+    @Override
+    public Value<Integer> visitPreIncrementExpr(BilParser.PreIncrementExprContext ctx) {
+        Value<?> value = visit(ctx.expression());
+
+        // ТОЛЬКО ДЛЯ INT
+        if (value.type() != Value.Type.INT) {
+            throw new RuntimeException("++ can only be applied to integers");
+        }
+
+        int newValue = value.asInt() + 1;
+        updateVariable(ctx.expression(), Value.ofInt(newValue));
+        return Value.ofInt(newValue); // Возвращаем новое значение (пре-инкремент)
+    }
+
+
+    //
+    @Override
+    public Value<?> visitIfStatement(BilParser.IfStatementContext ctx) {
+        Value<?> condition = visit(ctx.expression());
+        if (condition.isTruthy()) {
+            return visit(ctx.statement(0));
+        } else if (ctx.statement().size() > 1) {
+            return visit(ctx.statement(1));
+        }
+        return Value.VOID;
+    }
+
+    @Override
+    public Value<?> visitWhileStatement(BilParser.WhileStatementContext ctx) {
+        Value<?> result = Value.VOID;
+        while (visit(ctx.expression()).isTruthy()) {
+            result = visit(ctx.statement());
+        }
+        return result;
+    }
+
+    /** */
+    @Override
+    public Value<?> visitForStatement(BilParser.ForStatementContext ctx) {
+        Value<?> result = Value.VOID;
+
+        // Инициализация
+        if (ctx.variableDeclaration() != null) {
+            visit(ctx.variableDeclaration());
+        } else if (ctx.assignment() != null) {
+            visit(ctx.assignment());
+        }
+
+        // Условие и обновление
+        BilParser.ExpressionContext condition = null;
+        BilParser.ExpressionContext update = null;
+
+        if(!ctx.expression().isEmpty() ) {
+            condition = ctx.expression(0);
+        }
+
+        if( ctx.expression().size() > 1 ) {
+            update = ctx.expression(1);
+        }
+
+        // Цикл
+        while (condition == null || visit(condition).isTruthy()) {
+            // Выполняем statement (может быть пустым)
+            if (ctx.statement() != null) {
+                result = visit(ctx.statement());
+            }
+
+            // Обновление
+            if (update != null) {
+                visit(update);
+            }
+        }
+
+        return result;
+    }
+
+    // Добавить поле в класс
+    private boolean returnEncountered = false;
+
+    @Override
+    public Value<?> visitReturnStatement(BilParser.ReturnStatementContext ctx) {
+        returnEncountered = true;
+        if (ctx.expression() != null) {
+            return visit(ctx.expression());
+        }
+        return Value.VOID;
+    }
+
+    @Override
+    public Value<?> visitBlock(BilParser.BlockContext ctx) {
+        returnEncountered = false;
+        Value<?> result = Value.VOID;
+        for (BilParser.StatementContext stmt : ctx.statement()) {
+            result = visit(stmt);
+            if (returnEncountered) {
+                return result;
+            }
+        }
+        return result;
+    }
+
+    @Override
+    public Value<?> visitFunctionDeclaration( BilParser.FunctionDeclarationContext ctx ) {
+
+        final String funcName = ctx.ID().getText();
+
+        functions().put(funcName, new TriFunction<ScriptContext, List<Value<?>>, ParserRuleContext, Value<?> >() {
+            @Override
+            public Value<?> apply(ScriptContext scriptContext, List<Value<?>> args, ParserRuleContext unused) {
+
+                // Создаем временный контекст для функции
+                final FunctionContext functionContext = new FunctionContext( scriptContext );
+
+                // Устанавливаем параметры функции
+                final List<BilParser.ParameterContext> params = ctx.parameterList().parameter();
+                for( int i = 0; i < params.size(); i++ )
+                {
+                    String paramName = params.get(i).ID().getText();
+                    Value<?> argValue = i < args.size() ? args.get(i) : Value.Null;
+                    functionContext.setAttribute( paramName, argValue, ScriptContext.ENGINE_SCOPE );
+                }
+
+                try {
+                    // Временно подменяем контекст на functionContext
+                    BilVisitorImpl.this.scriptContext = functionContext;
+                    // Выполняем тело функции
+                    return visit( ctx.block() );
+
+                } finally {
+                    // Восстанавливаем оригинальный контекст
+                    BilVisitorImpl.this.scriptContext = functionContext.getParent();
+                }
+            }
+        });
+
+        return Value.VOID;
+    }
+
+    @Override
+    public Value<?> visitVariableAssignment(BilParser.VariableAssignmentContext ctx) {
+        final String varName = ctx.ID().getText();
+        Value<?> value = visit(ctx.expression());
+
+        Object currentValue = getEngineBindings().get(varName);
+
+        if (currentValue == null) {
+            // Сохраняем Value объект напрямую
+            getEngineBindings().put(varName, value);
+        } else {
+            // Если текущее значение - Value объект
+            if (currentValue instanceof Value) {
+                Value<?> currentValueObj = (Value<?>) currentValue;
+                Value.Type currentType = currentValueObj.type();
+                value = ValueHelper.convert(value, currentType, ctx);
+                getEngineBindings().put(varName, value);
+            } else {
+                // Для обратной совместимости с Java объектами
+                Value.Type currentType = ValueHelper.typeOfJavaObj(currentValue);
+                value = ValueHelper.convert(value, currentType, ctx);
+                getEngineBindings().put(varName, value.toJavaObject());
+            }
+        }
+        return value;
+    }
+
+    /** */
+    @Override
+    public Value<?> visitArrayElementAssignment(BilParser.ArrayElementAssignmentContext ctx) {
+
+        BilParser.ArrayIndexAccessContext arrayAccess = ctx.arrayIndexAccess();
+        Value<?> arrayValue = visit(arrayAccess.expression(0));
+        Value<?> indexValue = visit(arrayAccess.expression(1));
+        Value<?> value      = visit(ctx.expression());
+
+        if( arrayValue.type() != Value.Type.ARRAY )
+            BilException.throwTypeException( "visitArrayElementAssignment", "Expected array type for element assignment", ctx);
+
+        if (indexValue.type() != Value.Type.INT)
+            BilException.throwTypeException( "visitArrayElementAssignment", "Array index must be integer", ctx);
+
+        List<Value<?>> array = arrayValue.asArray();
+        int index = indexValue.asInt();
+
+        if (index < 0 || index >= array.size()) {
+            BilException.throwRuntimeException("Array index out of bounds: " + index, ctx);
+        }
+
+        // Устанавливаем значение в массив
+        // Массив уже является Value объектом, поэтому изменения сохраняются!
+        array.set(index, value);
+        return value;
+    }
+
+    /** */
+    @Override
+    public Value<?> visitArrayIndexAccess(BilParser.ArrayIndexAccessContext ctx)
+    {
+        final Value<?> containerValue = visit( ctx.expression(0) );
+        final Value<?> keyValue       = visit( ctx.expression(1) );
+
+        if( containerValue.type() == Value.Type.ARRAY )
+        {
+            if( keyValue.type() != Value.Type.INT )
+                BilException.throwTypeException( "", "Array index must be integer", ctx);
+
+            List<Value<?>> array = containerValue.asArray();
+            int index = keyValue.asInt();
+
+            if( index < 0 || index >= array.size() )
+                BilException.throwRuntimeException("Array index out of bounds: " + index, ctx);
+
+            return array.get(index);
+
+        }
+        else
+            if (containerValue.type() == Value.Type.MAP)
+            {
+                Map<Value<?>, Value<?>> map = containerValue.asMap();
+                return map.computeIfAbsent( keyValue, k -> Value.Null );
+            }
+
+        BilException.throwTypeException( "","Expected array or map type for index access", ctx );
+
+        return Value.Null;
+    }
+
+    @Override
+    public Value<?> visitMapLiteral(BilParser.MapLiteralContext ctx) {
+
+        Map<Value<?>, Value<?>> map = new HashMap<>();
+
+        if (ctx.keyValueList() != null)
+        {
+            for (BilParser.KeyValuePairContext kvp : ctx.keyValueList().keyValuePair()) {
+                Value<?> key    = visit(kvp.expression(0));
+                Value<?> value = visit(kvp.expression(1));
+                map.put(key, value);
+            }
+        }
+
+        return Value.ofMap(map);
+    }
+
+    @Override
+    public Value<?> visitMapLiteralExpr(BilParser.MapLiteralExprContext ctx) {
+        return visitMapLiteral(ctx.mapLiteral());
+    }
+
+    /** */
+    @Override
+    public Value<?> visitStatement(BilParser.StatementContext ctx) {
+        if (ctx.variableDeclaration() != null) {
+            return visit(ctx.variableDeclaration());
+        } else if (ctx.assignment() != null) {
+            // Вместо visitAssignment(ctx.assignment()) - ANTLR сам вызовет нужный метод
+            return visit(ctx.assignment());
+        } else if (ctx.functionCall() != null) {
+            return visit(ctx.functionCall());
+        } else if (ctx.functionDeclaration() != null) {
+            return visit(ctx.functionDeclaration());
+        } else if (ctx.ifStatement() != null) {
+            return visit(ctx.ifStatement());
+        } else if (ctx.whileStatement() != null) {
+            return visit(ctx.whileStatement());
+        } else if (ctx.forStatement() != null) {
+            return visit(ctx.forStatement());
+        } else if (ctx.returnStatement() != null) {
+            return visit(ctx.returnStatement());
+        } else if (ctx.block() != null) {
+            return visit(ctx.block());
+        } else if (ctx.expression() != null) {
+            return visit(ctx.expression());
+        } else {
+            // Пустой statement ';'
+            return Value.VOID;
+        }
+    }}
