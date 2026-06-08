@@ -876,6 +876,25 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     }
 
     @Override
+    public Value<?> visitArrayLiteral(BilParser.ArrayLiteralContext ctx) {
+
+        List<Value<?>> list = new ArrayList<>();
+
+        if (ctx.expressionList() != null) {
+            for (BilParser.ExpressionContext expr : ctx.expressionList().expression()) {
+                list.add(visit(expr));
+            }
+        }
+
+        return Value.ofArray(list);
+    }
+
+    @Override
+    public Value<?> visitArrayLiteralExpr(BilParser.ArrayLiteralExprContext ctx) {
+        return visitArrayLiteral(ctx.arrayLiteral());
+    }
+
+    @Override
     public Value<?> visitMapLiteral(BilParser.MapLiteralContext ctx) {
 
         Map<Value<?>, Value<?>> map = new HashMap<>();
