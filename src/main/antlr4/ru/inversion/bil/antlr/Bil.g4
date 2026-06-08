@@ -22,15 +22,21 @@ variableDeclaration
     : type ID ('=' expression)? (',' ID ('=' expression)?)*
     ;
 
-// ИСПРАВЛЕНО: либо все альтернативы с лейблами, либо без
 assignment
     : ID '=' expression                                  # variableAssignment
     | arrayIndexAccess '=' expression                    # arrayElementAssignment
     ;
 
 arrayIndexAccess
-    : (ID | functionCall | '(' expression ')' | arrayLiteral | mapLiteral) 
-      '[' expression ']'
+    : indexTarget '[' index=expression ']'
+    ;
+
+indexTarget
+    : ID
+    | functionCall
+    | '(' expression ')'
+    | arrayLiteral
+    | mapLiteral
     ;
 
 expression
