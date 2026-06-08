@@ -667,6 +667,7 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
                 // Создаем временный контекст для функции
                 final FunctionContext functionContext = new FunctionContext( scriptContext );
+                final boolean savedReturnEncountered = BilVisitorImpl.this.returnEncountered;
 
                 // Устанавливаем параметры функции
                 final List<BilParser.ParameterContext> params = ctx.parameterList() == null ? Collections.emptyList() : ctx.parameterList().parameter();
@@ -679,14 +680,18 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
                 }
 
                 try {
-                    // Временно подменяем контекст на functionContext
-                    BilVisitorImpl.this.scriptContext = functionContext;
-                    // Выполняем тело функции
-                    return visit( ctx.block() );
 
-                } finally {
+                    // Временно подменяем контекст на functionContext
+                    BilVisitorImpl.this.scriptContext     = functionContext;
+                    BilVisitorImpl.this.returnEncountered = false;
+
+                    // Выполняем тело функции
+                    return visit(ctx.block());
+
+                } finally  {
                     // Восстанавливаем оригинальный контекст
-                    BilVisitorImpl.this.scriptContext = functionContext.getParent();
+                    BilVisitorImpl.this.scriptContext     = functionContext.getParent();
+                    BilVisitorImpl.this.returnEncountered = savedReturnEncountered;
                 }
             }
         });
