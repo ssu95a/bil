@@ -596,35 +596,33 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     public Value<?> visitForStatement(BilParser.ForStatementContext ctx) {
         Value<?> result = Value.VOID;
 
-        // Инициализация
         if (ctx.variableDeclaration() != null) {
             visit(ctx.variableDeclaration());
         } else if (ctx.assignment() != null) {
             visit(ctx.assignment());
         }
 
-        // Условие и обновление
         BilParser.ExpressionContext condition = null;
-        BilParser.ExpressionContext update = null;
+        BilParser.ExpressionContext updateExpression = null;
+        BilParser.ForUpdateAssignmentContext updateAssignment = ctx.forUpdateAssignment();
 
-        if(!ctx.expression().isEmpty() ) {
+        if (!ctx.expression().isEmpty()) {
             condition = ctx.expression(0);
         }
 
-        if( ctx.expression().size() > 1 ) {
-            update = ctx.expression(1);
+        if (ctx.expression().size() > 1) {
+            updateExpression = ctx.expression(1);
         }
 
-        // Цикл
         while (condition == null || visit(condition).isTruthy()) {
-            // Выполняем statement (может быть пустым)
             if (ctx.statement() != null) {
                 result = visit(ctx.statement());
             }
 
-            // Обновление
-            if (update != null) {
-                visit(update);
+            if (updateAssignment != null) {
+                visit(updateAssignment.assignment());
+            } else if (updateExpression != null) {
+                visit(updateExpression);
             }
         }
 
