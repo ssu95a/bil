@@ -22,7 +22,6 @@
         <maven.compiler.source>8</maven.compiler.source>
         <maven.compiler.target>8</maven.compiler.target>
         <antlr.version>4.9.3</antlr.version>
-        <exec.mainClass>ru.inversion.bil.Runner</exec.mainClass>
     </properties>
 
     <dependencies>
@@ -32,14 +31,6 @@
             <artifactId>antlr4-runtime</artifactId>
             <version>${antlr.version}</version>
             <scope>compile</scope>
-        </dependency>
-
-        <!-- ANTLR Tool (для генерации парсера) -->
-        <dependency>
-            <groupId>org.antlr</groupId>
-            <artifactId>antlr4</artifactId>
-            <version>${antlr.version}</version>
-            <scope>provided</scope>
         </dependency>
 
         <dependency>
@@ -125,7 +116,6 @@
                 <configuration>
                     <archive>
                         <manifest>
-                            <mainClass>ru.inversion.bil.Runner</mainClass>
                             <addClasspath>false</addClasspath>
                         </manifest>
                         <manifestEntries>
@@ -164,15 +154,6 @@
                 </executions>
             </plugin>
 
-            <!-- Плагин для запуска скриптов -->
-            <plugin>
-                <groupId>org.codehaus.mojo</groupId>
-                <artifactId>exec-maven-plugin</artifactId>
-                <version>3.0.0</version>
-                <configuration>
-                    <mainClass>ru.inversion.bil.Runner</mainClass>
-                </configuration>
-            </plugin>
         </plugins>
 
         <resources>

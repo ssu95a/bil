@@ -91,7 +91,7 @@ parameterList
     ;
 
 parameter
-    : type '&'? ID
+    : type ID
     ;
 
 functionCall
@@ -115,7 +115,11 @@ whileStatement
     ;
 
 forStatement
-    : 'for' '(' (variableDeclaration | assignment)? ';' expression? ';' expression? ')' statement
+    : 'for' '(' (variableDeclaration | assignment)? ';' expression? ';' (forUpdateAssignment | expression)? ')' statement
+    ;
+
+forUpdateAssignment
+    : assignment
     ;
 
 returnExpression
@@ -144,15 +148,16 @@ type
     ;
 
 // Лексер
+BOOL: 'true' | 'false';
+NULL: 'null';
 ID: [a-zA-Z_][a-zA-Z0-9_]*;
 NUMBER: [0-9]+ ('.' [0-9]+)?;
 STRING: '"' ( ESC | ~["\\] )* '"';
         fragment ESC: '\\' . ;
-BOOL: 'true' | 'false';
-NULL: 'null';
+
 DATE: [0-9][0-9][0-9][0-9] '-' [0-9][0-9] '-' [0-9][0-9];
 TIME: [0-9][0-9] ':' [0-9][0-9] (':' [0-9][0-9] ('.' [0-9]+)?)?;
-CHAR: '\'' . '\'';
+CHAR: '\'' ( ESC | ~['\\] ) '\'';
 
 WS: [ \t\r\n]+ -> skip;
 COMMENT: '//' ~[\r\n]* -> skip;

@@ -470,14 +470,45 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
 
     // Increments & Decrements
 
-    private void updateVariable(BilParser.ExpressionContext expr, Value<Integer> newValue)
-    {
-        if( expr instanceof BilParser.VariableExprContext ) {
-            String varName = ((BilParser.VariableExprContext) expr).ID().getText();
-            getEngineBindings().put(varName, newValue.toJavaObject() );
+    private Bindings findWritableBindings(ScriptContext ctx, String varName) {
+        Bindings engineBindings = ctx.getBindings(ScriptContext.ENGINE_SCOPE);
+
+        if (engineBindings != null && engineBindings.containsKey(varName)) {
+            return engineBindings;
         }
 
-        // Для более сложных выражений нужна дополнительная логика
+        if (ctx instanceof FunctionContext) {
+            return findWritableBindings(((FunctionContext) ctx).getParent(), varName);
+        }
+
+        Bindings globalBindings = ctx.getBindings(ScriptContext.GLOBAL_SCOPE);
+
+        if (globalBindings != null && globalBindings.containsKey(varName)) {
+            return globalBindings;
+        }
+
+        return null;
+    }
+
+    private void updateVariable(BilParser.ExpressionContext expr, Value<Integer> newValue) {
+
+        if( !(expr instanceof BilParser.VariableExprContext) )
+            BilException.throwRuntimeException( "++/-- can only be applied to variable", expr );
+
+        String varName = ((BilParser.VariableExprContext) expr).ID().getText();
+
+        Bindings bindings = findWritableBindings(scriptContext, varName);
+
+        if( bindings == null )
+            BilException.throwRuntimeException( "Variable not found: " + varName, expr );
+
+        Object currentValue = bindings.get(varName);
+
+        if (currentValue instanceof Value) {
+            bindings.put(varName, newValue);
+        } else {
+            bindings.put(varName, newValue.toJavaObject());
+        }
     }
 
     @Override
@@ -638,7 +669,8 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
                 final FunctionContext functionContext = new FunctionContext( scriptContext );
 
                 // Устанавливаем параметры функции
-                final List<BilParser.ParameterContext> params = ctx.parameterList().parameter();
+                final List<BilParser.ParameterContext> params = ctx.parameterList() == null ? Collections.emptyList() : ctx.parameterList().parameter();
+
                 for( int i = 0; i < params.size(); i++ )
                 {
                     String paramName = params.get(i).ID().getText();
@@ -662,30 +694,56 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
         return Value.VOID;
     }
 
+    private Bindings findBindingsForAssignment( ScriptContext ctx, String name )
+    {
+        Bindings engine = ctx.getBindings(ScriptContext.ENGINE_SCOPE);
+        if( engine != null && engine.containsKey(name) )
+            return engine;
+
+        if( ctx instanceof FunctionContext )
+            return findBindingsForAssignment(((FunctionContext) ctx).getParent(), name);
+
+        Bindings global = ctx.getBindings(ScriptContext.GLOBAL_SCOPE);
+        if (global != null && global.containsKey(name)) {
+            return global;
+        }
+
+        return null;
+    }
+
     @Override
     public Value<?> visitVariableAssignment(BilParser.VariableAssignmentContext ctx) {
+
         final String varName = ctx.ID().getText();
         Value<?> value = visit(ctx.expression());
 
-        Object currentValue = getEngineBindings().get(varName);
+        Bindings targetBindings = findBindingsForAssignment(scriptContext, varName);
 
-        if (currentValue == null) {
-            // Сохраняем Value объект напрямую
+        if( targetBindings == null )
+        {
+            // Для строгого C-like поведения лучше бросать ошибку.
+            // Для мягкой обратной совместимости можно оставить создание в текущем scope.
             getEngineBindings().put(varName, value);
-        } else {
-            // Если текущее значение - Value объект
-            if (currentValue instanceof Value) {
-                Value<?> currentValueObj = (Value<?>) currentValue;
-                Value.Type currentType = currentValueObj.type();
-                value = ValueHelper.convert(value, currentType, ctx);
-                getEngineBindings().put(varName, value);
-            } else {
-                // Для обратной совместимости с Java объектами
-                Value.Type currentType = ValueHelper.typeOfJavaObj(currentValue);
-                value = ValueHelper.convert(value, currentType, ctx);
-                getEngineBindings().put(varName, value.toJavaObject());
-            }
+
+            return value;
         }
+
+        Object currentValue = targetBindings.get(varName);
+
+        if( currentValue instanceof Value )
+        {
+            Value<?> currentValueObj = (Value<?>) currentValue;
+            value = ValueHelper.convert(value, currentValueObj.type(), ctx);
+            targetBindings.put(varName, value);
+        }
+        else if (currentValue != null) {
+            Value.Type currentType = ValueHelper.typeOfJavaObj(currentValue);
+            value = ValueHelper.convert(value, currentType, ctx);
+            targetBindings.put(varName, value.toJavaObject());
+        } else {
+            targetBindings.put(varName, value);
+        }
+
         return value;
     }
 
