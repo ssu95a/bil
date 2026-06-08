@@ -753,60 +753,124 @@ public class BilVisitorImpl extends BilBaseVisitor<Value<?>> {
     /** */
     @Override
     public Value<?> visitArrayElementAssignment(BilParser.ArrayElementAssignmentContext ctx) {
-
         BilParser.ArrayIndexAccessContext arrayAccess = ctx.arrayIndexAccess();
-        Value<?> arrayValue = visit(arrayAccess.expression(0));
-        Value<?> indexValue = visit(arrayAccess.expression(1));
-        Value<?> value      = visit(ctx.expression());
 
-        if( arrayValue.type() != Value.Type.ARRAY )
-            BilException.throwTypeException( "visitArrayElementAssignment", "Expected array type for element assignment", ctx);
+        Value<?> containerValue = resolveIndexTarget(arrayAccess.indexTarget());
+        Value<?> keyValue       = visit(arrayAccess.index);
+        Value<?> value          = visit(ctx.expression());
 
-        if (indexValue.type() != Value.Type.INT)
-            BilException.throwTypeException( "visitArrayElementAssignment", "Array index must be integer", ctx);
-
-        List<Value<?>> array = arrayValue.asArray();
-        int index = indexValue.asInt();
-
-        if (index < 0 || index >= array.size()) {
-            BilException.throwRuntimeException("Array index out of bounds: " + index, ctx);
-        }
-
-        // Устанавливаем значение в массив
-        // Массив уже является Value объектом, поэтому изменения сохраняются!
-        array.set(index, value);
-        return value;
-    }
-
-    /** */
-    @Override
-    public Value<?> visitArrayIndexAccess(BilParser.ArrayIndexAccessContext ctx)
-    {
-        final Value<?> containerValue = visit( ctx.expression(0) );
-        final Value<?> keyValue       = visit( ctx.expression(1) );
-
-        if( containerValue.type() == Value.Type.ARRAY )
-        {
-            if( keyValue.type() != Value.Type.INT )
-                BilException.throwTypeException( "", "Array index must be integer", ctx);
+        if (containerValue.type() == Value.Type.ARRAY) {
+            if (keyValue.type() != Value.Type.INT) {
+                BilException.throwTypeException(
+                        "visitArrayElementAssignment",
+                        "Array index must be integer",
+                        ctx
+                );
+            }
 
             List<Value<?>> array = containerValue.asArray();
             int index = keyValue.asInt();
 
-            if( index < 0 || index >= array.size() )
+            if (index < 0 || index >= array.size()) {
                 BilException.throwRuntimeException("Array index out of bounds: " + index, ctx);
-
-            return array.get(index);
-
-        }
-        else
-            if (containerValue.type() == Value.Type.MAP)
-            {
-                Map<Value<?>, Value<?>> map = containerValue.asMap();
-                return map.computeIfAbsent( keyValue, k -> Value.Null );
             }
 
-        BilException.throwTypeException( "","Expected array or map type for index access", ctx );
+            array.set(index, value);
+            return value;
+        }
+
+        if (containerValue.type() == Value.Type.MAP) {
+            Map<Value<?>, Value<?>> map = containerValue.asMap();
+            map.put(keyValue, value);
+            return value;
+        }
+
+        BilException.throwTypeException(
+                "visitArrayElementAssignment",
+                "Expected array or map type for index assignment",
+                ctx
+        );
+
+        return Value.Null;
+    }
+
+    private Value<?> resolveIndexTarget(BilParser.IndexTargetContext ctx) {
+        if (ctx.ID() != null) {
+            return resolveVariableValue(ctx.ID().getText());
+        }
+
+        if (ctx.functionCall() != null) {
+            return visit(ctx.functionCall());
+        }
+
+        if (ctx.arrayLiteral() != null) {
+            return visit(ctx.arrayLiteral());
+        }
+
+        if (ctx.mapLiteral() != null) {
+            return visit(ctx.mapLiteral());
+        }
+
+        if (ctx.expression() != null) {
+            return visit(ctx.expression());
+        }
+
+        BilException.throwRuntimeException("Invalid index target", ctx);
+        return Value.Null;
+    }
+
+    private Value<?> resolveVariableValue(String varName) {
+        Object value = getEngineBindings().get(varName);
+
+        if (value == null) {
+            Bindings globalBindings = scriptContext.getBindings(ScriptContext.GLOBAL_SCOPE);
+            if (globalBindings != null) {
+                value = globalBindings.get(varName);
+            }
+        }
+
+        if (value == null) {
+            return Value.Null;
+        }
+
+        if (value instanceof Value) {
+            return (Value<?>) value;
+        }
+
+        return Value.fromObject(value);
+    }
+
+    /** */
+    @Override
+    public Value<?> visitArrayIndexAccess(BilParser.ArrayIndexAccessContext ctx) {
+        final Value<?> containerValue = resolveIndexTarget(ctx.indexTarget());
+        final Value<?> keyValue       = visit(ctx.index);
+
+        if (containerValue.type() == Value.Type.ARRAY) {
+            if (keyValue.type() != Value.Type.INT) {
+                BilException.throwTypeException("", "Array index must be integer", ctx);
+            }
+
+            List<Value<?>> array = containerValue.asArray();
+            int index = keyValue.asInt();
+
+            if (index < 0 || index >= array.size()) {
+                BilException.throwRuntimeException("Array index out of bounds: " + index, ctx);
+            }
+
+            return array.get(index);
+        }
+
+        if (containerValue.type() == Value.Type.MAP) {
+            Map<Value<?>, Value<?>> map = containerValue.asMap();
+            return map.computeIfAbsent(keyValue, k -> Value.Null);
+        }
+
+        BilException.throwTypeException(
+                "",
+                "Expected array or map type for index access",
+                ctx
+        );
 
         return Value.Null;
     }
